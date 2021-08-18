@@ -74,7 +74,7 @@ def get_vpcs(region, outputfilter):
             outputfilter["vpc-names"]
         )
     vpcs = query_aws(region.account, "ec2-describe-vpcs", region)
-    return pyjq.all(".Vpcs[]{}".format(vpc_filter), vpcs)
+    return pyjq.all(".Vpcs[]?{}".format(vpc_filter), vpcs)
 
 
 def get_azs(vpc):
@@ -87,7 +87,7 @@ def get_vpc_peerings(region):
     vpc_peerings = query_aws(
         region.account, "ec2-describe-vpc-peering-connections", region
     )
-    resource_filter = ".VpcPeeringConnections[]"
+    resource_filter = ".VpcPeeringConnections[]?"
     return pyjq.all(resource_filter, vpc_peerings)
 
 
@@ -101,7 +101,7 @@ def get_subnets(az):
 
 def get_ec2s(region):
     instances = query_aws(region.account, "ec2-describe-instances", region.region)
-    resource_filter = '.Reservations[].Instances[] | select(.State.Name == "running")'
+    resource_filter = '.Reservations[]?.Instances[]? | select(.State.Name == "running")'
     return pyjq.all(resource_filter, instances)
 
 
@@ -109,7 +109,7 @@ def get_elbs(region):
     load_balancers = query_aws(
         region.account, "elb-describe-load-balancers", region.region
     )
-    return pyjq.all(".LoadBalancerDescriptions[]", load_balancers)
+    return pyjq.all(".LoadBalancerDescriptions[]?", load_balancers)
 
 
 def get_elbv2s(region):
@@ -117,17 +117,17 @@ def get_elbv2s(region):
     load_balancers = query_aws(
         region.account, "elbv2-describe-load-balancers", region.region
     )
-    return pyjq.all(".LoadBalancers[]", load_balancers)
+    return pyjq.all(".LoadBalancers[]?", load_balancers)
 
 
 def get_vpc_endpoints(region):
     endpoints = query_aws(region.account, "ec2-describe-vpc-endpoints", region.region)
-    return pyjq.all(".VpcEndpoints[]", endpoints)
+    return pyjq.all(".VpcEndpoints[]?", endpoints)
 
 
 def get_rds_instances(region):
     instances = query_aws(region.account, "rds-describe-db-instances", region.region)
-    return pyjq.all(".DBInstances[]", instances)
+    return pyjq.all(".DBInstances[]?", instances)
 
 
 def get_ecs_tasks(region):
@@ -150,18 +150,18 @@ def get_ecs_tasks(region):
 
 def get_lambda_functions(region):
     functions = query_aws(region.account, "lambda-list-functions", region.region)
-    return pyjq.all(".Functions[]|select(.VpcConfig!=null)", functions)
+    return pyjq.all(".Functions[]?|select(.VpcConfig!=null)", functions)
 
 
 def get_redshift(region):
     clusters = query_aws(region.account, "redshift-describe-clusters", region.region)
-    return pyjq.all(".Clusters[]", clusters)
+    return pyjq.all(".Clusters[]?", clusters)
 
 
 def get_elasticsearch(region):
     es_domains = []
     domain_json = query_aws(region.account, "es-list-domain-names", region.region)
-    domains = pyjq.all(".DomainNames[]", domain_json)
+    domains = pyjq.all(".DomainNames[]?", domain_json)
     for domain in domains:
         es = get_parameter_file(
             region, "es", "describe-elasticsearch-domain", domain["DomainName"]
@@ -200,7 +200,9 @@ def get_external_cidrs(account, config):
 
 
 def get_cidr_name(cidr, config):
-    return config["cidrs"].get(cidr, {}).get("name", None)
+    if config.get("cidrs", None) is not None:
+        return config["cidrs"].get(cidr, {}).get("name", None)
+    return None
 
 
 def add_connection(connections, source, target, reason):
@@ -566,10 +568,11 @@ def build_data_structure(account_data, config, outputfilter):
         # Find CIDRs in the config that our CIDR falls inside
         # It may fall inside multiple ranges
         matching_known_cidrs = {}
-        for named_cidr in config["cidrs"]:
-            if IPNetwork(cidr_string) in IPNetwork(named_cidr):
-                # Match found
-                matching_known_cidrs[named_cidr] = IPNetwork(named_cidr).size
+        if config.get("cidrs", None) is not None:
+            for named_cidr in config["cidrs"]:
+                if IPNetwork(cidr_string) in IPNetwork(named_cidr):
+                    # Match found
+                    matching_known_cidrs[named_cidr] = IPNetwork(named_cidr).size
 
         if len(matching_known_cidrs) > 0:
             # A match was found. Find the smallest matching range.
